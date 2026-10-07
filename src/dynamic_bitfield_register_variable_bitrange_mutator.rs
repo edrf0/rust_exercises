@@ -28,13 +28,14 @@ impl Register64 {
 
     pub fn get_range(&self, start_bit: u8, length: u8) -> u64 {
         if start_bit >= 64 || start_bit + length > 64 { return 0; }
-        (self.0 >> start_bit) & ((1 << length) - 1)
+        let mask = if length < 64 { (1 << length) - 1 } else { !0 };
+        (self.0 >> start_bit) & mask
     }
 
     pub fn set_range(&mut self, start_bit: u8, length: u8, value: u64) {
         if start_bit >= 64 || start_bit + length > 64 { return; }
         // Turn off range bits in self.0
-        let initial_ones_mask = (1 << length) - 1;
+        let initial_ones_mask = if length < 64 { (1 << length) - 1 } else { !0 };
         let shifted_ones_mask = initial_ones_mask << start_bit;
         let zeros_mask = !shifted_ones_mask;
         self.0 &= zeros_mask;

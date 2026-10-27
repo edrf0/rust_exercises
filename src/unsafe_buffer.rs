@@ -12,6 +12,7 @@ pub struct UnsafeBuffer<T> {
     buffer: *mut T,
     len: usize,
     capacity: usize,
+    layout: Layout,
 }
 
 impl<T> UnsafeBuffer<T> {
@@ -20,13 +21,14 @@ impl<T> UnsafeBuffer<T> {
             buffer: ptr::null_mut(),
             len: 0,
             capacity: 0,
+            layout: Layout::new::<T>(),
         }
     }
 
-    fn realloc(&mut self) -> Result<(*mut T, usize), MemoryError> {
+    fn realloc(&mut self) -> Result<(), MemoryError> {
         let new_capacity = if self.capacity > 0 {self.capacity * 2} else {1};
-        let layout = Layout::array::<T>(new_capacity).map_err(MemoryError::LayoutErr)?;
-        let new_buffer_ptr = unsafe { alloc(layout) };
+        let new_layout = Layout::array::<T>(new_capacity).map_err(MemoryError::LayoutErr)?;
+        let new_buffer_ptr = unsafe { alloc(new_layout) };
         if new_buffer_ptr.is_null() {
             return Err(MemoryError::NullPointerErr);
         }
@@ -39,19 +41,21 @@ impl<T> UnsafeBuffer<T> {
                 }
             }
             // Dealloc old buffer
-            let old_layout = Layout::array::<T>(self.capacity).map_err(MemoryError::LayoutErr)?;
             unsafe {
-                dealloc(self.buffer as *mut u8, old_layout);
+                dealloc(self.buffer as *mut u8, self.layout);
             }
         }
-        Ok((new_buffer_ptr,new_capacity))
+        self.buffer = new_buffer_ptr;
+        self.capacity = new_capacity;
+        self.layout = new_layout;
+        Ok(())
     }
 
     pub fn push(&mut self, item: T) -> Result<(), MemoryError> {
         if self.len == self.capacity {
-            let (new_buffer_ptr, new_capacity) = self.realloc()?;
-            self.buffer = new_buffer_ptr;
-            self.capacity = new_capacity;
+            if let Err(e) = self.realloc() {
+                return Err(e);
+            }
         }
         unsafe {
             ptr::write(self.buffer.add(self.len), item);
@@ -92,9 +96,8 @@ impl<T> Drop for UnsafeBuffer<T> {
     fn drop(&mut self) {
         if !self.buffer.is_null() {
             self.clear();
-            let layout = Layout::array::<T>(self.capacity).unwrap();
             unsafe {
-                dealloc(self.buffer as *mut u8, layout);
+                dealloc(self.buffer as *mut u8, self.layout);
             }
         }
     }
